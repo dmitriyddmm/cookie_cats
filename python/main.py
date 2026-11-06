@@ -8,16 +8,16 @@ from statsmodels.stats.multitest import multipletests
 
 # загрузка и проверка качества данных
 df = pd.read_csv('cookie_cats.csv')
-assert df['version'].notna().all().all() , 'Есть пропущенные значения'
-assert not df['userid'].duplicated().any(), 'Есть повторяющиеся пользователи'
+assert df.notna().all().all(), 'Есть пропущенные значения'
+assert not df['userid'].duplicated().all(), 'Есть повторяющиеся пользователи'
 assert (df['sum_gamerounds'] >= 0).all(), 'Есть отрицательное количество раундов'
 for column in ('retention_1', 'retention_7'):
     assert set(df[column].unique()).issubset({True, False, 0, 1}), 'Есть некорректные значения удержания'
     df[column] = df[column].astype(bool)
 
 # разделение таблицы на контрольную и тестовую выборки
-control = df[df.version == 'gate_30']
-treatment = df[df.version == 'gate_40']
+control = df[df['version'] == 'gate_30']
+treatment = df[df['version'] == 'gate_40']
 
 # расчёт метрик
 summary = df.groupby('version').agg(
@@ -31,24 +31,23 @@ summary = df.groupby('version').agg(
 ).reindex(['gate_30', 'gate_40'])
 summary['retention_d1'] = summary['retained_d1'] / summary['users']  # доля удержания на 1-й день
 summary['retention_d7'] = summary['retained_d7'] / summary['users']  # доля удержания на 7-й день
-summary.to_csv('outputs/group_summary.csv', float_format='%.8f')
+summary.to_csv('outputs/group_summary.csv', float_format='%.4f')
 
 # проверка статистической значимости различий удержания между выборками
 results = []
 for name, col in [('D1', 'retention_1'), ('D7', 'retention_7')]:
 
     # проверка гипотез с помощью двустороннего z-теста
-    ct = int(treatment[col].sum())  # количество удержанных пользователей тестовой выборки
-    cc = int(control[col].sum())  # контрольной выборки
+    ct, cc = int(treatment[col].sum()), int(control[col].sum())  # количество удержанных пользователей выборок
     nt, nc = len(treatment), len(control)  # количество всех пользователей выборок
-    pt, pc = ct / nt, cc / nc
+    pt, pc = ct / nt, cc / nc  # доля удержания пользователей выборок
     z, p = proportions_ztest(
         [ct, cc],
         [nt, nc],
         alternative='two-sided'
     )  # z-тест
 
-    # расчёт доверительных интервалов
+    # расчёт границ доверительного интервала
     lo, hi = confint_proportions_2indep(
         ct, nt,
         cc, nc,
@@ -61,38 +60,40 @@ for name, col in [('D1', 'retention_1'), ('D7', 'retention_7')]:
         metric=name, n_control=nc, n_test=nt,
         successes_control=cc, successes_test=ct,
         rate_control=pc, rate_test=pt,
-        diff_pp=(pt - pc) * 100,
-        relative_change_pct=(pt / pc - 1) * 100,
-        ci_low_pp=lo * 100, ci_high_pp=hi * 100,
-        z_stat=z, p_value=p)
+        diff_pp=(pt - pc) * 100,  # разница между долями удержания пользователей в выборках, процентные пункты
+        relative_change_pct=(pt / pc - 1) * 100,  # изменение доли удержания пользователей в выборках, проценты
+        ci_low_pp=lo * 100, ci_high_pp=hi * 100,  # границы доверительного интервала, процентные пункты
+        z_stat=z,  # z-критерий
+        p_value=p)  # p-value для z-теста
     )
 tests = pd.DataFrame(results)
 
 # поправка Холма на множественные проверки гипотез
 tests['p_holm'] = multipletests(
-    tests.p_value,
+    tests['p_value'],
     alpha=0.05,
     method='holm'
 )[1]
-tests['significant_holm_05'] = tests.p_holm < 0.05
-tests.to_csv('outputs/retention_tests.csv', index=False, float_format='%.10f')
+tests['significant_holm_05'] = tests['p_holm'] < 0.05  # наличие статистической значимости с учётом поправки Холма
+tests.to_csv('outputs/retention_tests.csv', index=False, float_format='%.4f')
 
 # анализ активности игроков (количество раундов)
 # изменилось ли количество раундов после переноса ограничения с 30 на 40
-rounds_control = control.sum_gamerounds
-rounds_test = treatment.sum_gamerounds
+rounds_control = control['sum_gamerounds']
+rounds_test = treatment['sum_gamerounds']
 u, p_mwu = mannwhitneyu(
     rounds_test,
     rounds_control,
     alternative='two-sided',
     method='asymptotic'
-)  # двусторонний критерий Манна - Уитни для сравнения распределений
+)  # двусторонний тест Манна - Уитни для сравнения распределений
 rounds = pd.DataFrame([{
-    'mean_control': rounds_control.mean(), 'mean_test': rounds_test.mean(),
-    'median_control': rounds_control.median(), 'median_test': rounds_test.median(),
-    'p95_control': rounds_control.quantile(0.95), 'p95_test': rounds_test.quantile(0.95),
-    'max_control': rounds_control.max(), 'max_test': rounds_test.max(),
-    'mann_whitney_u': u, 'mann_whitney_p_exploratory': p_mwu
+    'mean_control': rounds_control.mean(), 'mean_test': rounds_test.mean(),  # среднее количество раундов
+    'median_control': rounds_control.median(), 'median_test': rounds_test.median(),  # медианное количество раундов
+    'p95_control': rounds_control.quantile(0.95), 'p95_test': rounds_test.quantile(0.95),  # 95-й процентиль количеств раундов
+    'max_control': rounds_control.max(), 'max_test': rounds_test.max(),  # максимальное количество раундов
+    'mann_whitney_u': u,  # U-статистика
+    'mann_whitney_p_exploratory': p_mwu < 0.05  # наличие статистической значимости между выборками
 }])  # результаты
 rounds.to_csv('outputs/rounds_exploratory.csv', index=False)
 
@@ -115,7 +116,7 @@ ax.bar(
     label='Тестовая выборка'
 )
 ax.set_xticks(x, ['Удержание на 1-й день', 'Удержание на 7-й день'])
-ax.set_ylabel('Удержание (%)')
+ax.set_ylabel('Удержание, %')
 ax.set_title('Удержание в выборках')
 fig.savefig('images/retention_comparison.png')
 plt.close(fig)
@@ -128,6 +129,6 @@ ax.hist(
 )
 ax.set_xlabel(f'Количество раундов')
 ax.set_ylabel('Игроки')
-ax.set_title('Распределение количества раундов')
+ax.set_title('Распределение количества раундов в выборках')
 fig.savefig('images/rounds_distribution.png')
 plt.close(fig)
