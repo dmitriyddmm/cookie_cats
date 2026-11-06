@@ -93,7 +93,7 @@ rounds = pd.DataFrame([{
     'p95_control': rounds_control.quantile(0.95), 'p95_test': rounds_test.quantile(0.95),  # 95-й процентиль количеств раундов
     'max_control': rounds_control.max(), 'max_test': rounds_test.max(),  # максимальное количество раундов
     'mann_whitney_u': u,  # U-статистика
-    'mann_whitney_p_exploratory': p_mwu < 0.05  # наличие статистической значимости между выборками
+    'mann_whitney_p_exploratory': p_mwu < 0.05  # наличие статистической значимости распределений в выборках
 }])  # результаты
 rounds.to_csv('outputs/rounds_exploratory.csv', index=False)
 
