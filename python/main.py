@@ -9,7 +9,7 @@ from statsmodels.stats.multitest import multipletests
 # загрузка и проверка качества данных
 df = pd.read_csv('cookie_cats.csv')
 assert df.notna().all().all(), 'Есть пропущенные значения'
-assert not df['userid'].duplicated().all(), 'Есть повторяющиеся пользователи'
+assert not df['userid'].duplicated().any(), 'Есть повторяющиеся пользователи'
 assert (df['sum_gamerounds'] >= 0).all(), 'Есть отрицательное количество раундов'
 for column in ('retention_1', 'retention_7'):
     assert set(df[column].unique()).issubset({True, False, 0, 1}), 'Есть некорректные значения удержания'
@@ -60,10 +60,10 @@ for name, col in [('D1', 'retention_1'), ('D7', 'retention_7')]:
         metric=name, n_control=nc, n_test=nt,
         successes_control=cc, successes_test=ct,
         rate_control=pc, rate_test=pt,
-        diff_pp=(pt - pc) * 100,  # разница между долями удержания пользователей в выборках, процентные пункты
+        diff_pp=(pt - pc) * 100,  # разница между тестовой и контрольной долями удержания пользователей в выборках, процентные пункты
         relative_change_pct=(pt / pc - 1) * 100,  # изменение доли удержания пользователей в выборках, проценты
         ci_low_pp=lo * 100, ci_high_pp=hi * 100,  # границы доверительного интервала, процентные пункты
-        z_stat=z,  # z-критерий
+        z_stat=z,  # наблюдаемое значение z-теста
         p_value=p)  # p-value для z-теста
     )
 tests = pd.DataFrame(results)
@@ -86,14 +86,14 @@ u, p_mwu = mannwhitneyu(
     rounds_control,
     alternative='two-sided',
     method='asymptotic'
-)  # двусторонний тест Манна - Уитни для сравнения распределений
+)  # двусторонний ранговый тест Манна - Уитни для сравнения распределений
 rounds = pd.DataFrame([{
     'mean_control': rounds_control.mean(), 'mean_test': rounds_test.mean(),  # среднее количество раундов
     'median_control': rounds_control.median(), 'median_test': rounds_test.median(),  # медианное количество раундов
     'p95_control': rounds_control.quantile(0.95), 'p95_test': rounds_test.quantile(0.95),  # 95-й процентиль количеств раундов
     'max_control': rounds_control.max(), 'max_test': rounds_test.max(),  # максимальное количество раундов
     'mann_whitney_u': u,  # U-статистика
-    'mann_whitney_p_exploratory': p_mwu < 0.05  # наличие статистической значимости распределений в выборках
+    'mann_whitney_p_exploratory': p_mwu < 0.05  # наличие статистической значимости различий распределений в выборках
 }])  # результаты
 rounds.to_csv('outputs/rounds_exploratory.csv', index=False)
 
